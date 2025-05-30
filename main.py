@@ -50,6 +50,7 @@ def log(msg, print_msg=True):
 
 
 transactions = []   # Global so I can use it elsewhere as well
+Unique_ID = set()   # create a set to check for duplicates
 def read_transactions(file_name='financial_transactions.csv'):
     # Parse date with datetime.strptime
     # Make amount negative for 'debit'
@@ -66,8 +67,6 @@ def read_transactions(file_name='financial_transactions.csv'):
             # Create a CSV reader object
             csv_reader = csv.DictReader(file)
 
-            # create a set to check for duplicates
-            Unique_ID = set()
             # Track id Numbers
             id_number = 0
             # Track input Row Numbers
@@ -432,8 +431,8 @@ def cli_update_delete_menu():
             confirm = input_option("Are you sure you want to delete this transaction? ", ['Delete', 'Cancel'])
             if confirm.lower() == 'delete':
                 transaction['type'] = 'Deleted'  # Mark as deleted
-                transactions.remove(transaction)
                 Unique_ID.remove(transaction['transaction_id'])
+                transactions.remove(transaction)
                 log(f"INFO: Deleted transaction ID {transaction_id}.")
                 print(f"Transaction ID {transaction_id} deleted.")
             else:
@@ -446,8 +445,12 @@ def cli_update_delete_menu():
 
         elif action == 'Cancel':
             ## retstore the original transaction
-            print("Cancelling transaction update.")
+            print("\nCancelling transaction update.")
             print_transaction_row(transaction)
+            print("Restoring original transaction:")
+            transaction.update(original_transaction)
+            print_transaction_row(transaction)
+
             if (transaction in transactions):
                 print("Transaction update cancelled, no changes made.")
                 log(f"INFO: Update Canceled.  Transaction ID {transaction_id}")
@@ -746,6 +749,8 @@ actions['eXit'] = exit_cli
 
 def main():
     read_transactions()  # Read transactions from CSV file
+    print()
+    view_transaction_table(transactions)
 
     while CLI_EXIT == False:
         # Ask user for input
