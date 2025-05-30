@@ -15,20 +15,30 @@
 # and print the first 5 rows 
 import sys
 import csv
+import time
 from datetime import datetime
 from decimal import Decimal, DecimalException
+from halo import Halo
 
-# Parse date with datetime.strptime
-# Make amount negative for 'debit'
-# Create dictionary with all fields
-# Add to transactions
-# Catch FileNotFoundError, ValueError
+MAX_WARNINGS = 10
 
-def tab(x=1): 
+number_of_warnings = 0
+## print_msg: True, False, Spinner
+def log_warn(message, print_msg=True):
+    global number_of_warnings
+    number_of_warnings += 1  
+
+    log(f"WARNING[{number_of_warnings}]: {message}", print_msg)
+    if number_of_warnings > MAX_WARNINGS:
+        raise Exception("Too many warnings! Exiting program.")
+        sys.exit(1)
+
+def tab(x=1):  
     return "   " * x
 
-def log(msg): 
-    print(msg)
+def log(msg, print_msg=True): 
+    print("\n") if print_msg == 'Spinner' else None
+    print(msg) if print_msg else None
     # append to log.txt file
     try: 
         with open('log.txt', 'a') as f:
@@ -38,90 +48,105 @@ def log(msg):
         print(f"ERROR: Error writing to log file: {e}")
         sys.exit(1)
 
-print();
-print("INFO: Starting to read financial_transactions.csv")
+
 transactions = []   # Global so I can use it elsewhere as well
-try: 
-    with open('financial_transactions.csv', mode='r') as file:
-        # Create a CSV reader object
-        csv_reader = csv.DictReader(file)
+def read_transactions(file_name='financial_transactions.csv'):
+    # Parse date with datetime.strptime
+    # Make amount negative for 'debit'
+    # Create dictionary with all fields
+    # Add to transactions
+    # Catch FileNotFoundError, ValueError
 
-        # create a set to check for duplicates
-        Unique_ID = set()
-        # Track id Numbers
-        id_number = 0
-        # Track input Row Numbers
-        row_number = 0
-        # Read all the rows into a list of dictionaries
-        for row in csv_reader:
-            row_number += 1
+    print(f"INFO: Starting to read {file_name}")
+    spinner = Halo(f'Reading {file_name}')
+    spinner.start()
 
-            # Convert date to datetime object
-            try: 
-                row['date'] = datetime.strptime(row['date'],"%Y-%m-%d")
-            except ValueError as e:
-                log(f"WARNING: Error parsing date: {e}\n{tab()}Row[{row_number}]: {row}")
-                continue
+    try: 
+        with open(file_name, mode='r') as file:
+            # Create a CSV reader object
+            csv_reader = csv.DictReader(file)
 
-            # Debit or Credit
-            try: 
-                if row['type'] == 'debit':
-                    # Convert amount to negative decimal
-                    row['amount'] = -Decimal(row['amount'])
+            # create a set to check for duplicates
+            Unique_ID = set()
+            # Track id Numbers
+            id_number = 0
+            # Track input Row Numbers
+            row_number = 0
+            # Read all the rows into a list of dictionaries
+            for row in csv_reader:
+                row_number += 1
+
+                # Convert date to datetime object
+                try: 
+                    row['date'] = datetime.strptime(row['date'],"%Y-%m-%d")
+                except ValueError as e:
+                    ## need the \n for the spinner to work correctly
+                    log_warn(f"Error parsing date: {e}\n{tab()}Row[{row_number}]: {row}", 'Spinner')
+                    continue
+
+                # Debit or Credit
+                try: 
+                    if row['type'] == 'debit':
+                        # Convert amount to negative decimal
+                        row['amount'] = -Decimal(row['amount'])
+                    else:
+                        # Convert amount to positive decimal
+                        row['amount'] = Decimal(row['amount'])
+                except DecimalException as e:
+                    log_warn(f"Error parsing amount: {e}\n{tab()}Row[{row_number}]: {row}", 'Spinner')
+                    continue
+
+                # Convert ID to Integer
+                try: 
+                    row['transaction_id'] = int(row['transaction_id'])
+                except ValueError as e:
+                    log_warn(f"Error parsing ID: {e}\n{tab()}Row[{row_number}]: {row}", 'Spinner')
+                    continue
+                # check id is sequential 
+                if row['transaction_id'] <= id_number:
+                    log_warn(f"ID is not sequential: {row['transaction_id']}\n{tab()}Row[{row_number}]: {row}", 'Spinner')
+                    continue
+                else :
+                    id_number = row['transaction_id']
+                # Check for duplicate ID
+                if row['transaction_id'] in Unique_ID:
+                    log_warn(f"Duplicate ID found: {row['transaction_id']}\n{tab()}Row[{row_number}]: {row}", 'Spinner')
+                    continue
                 else:
-                    # Convert amount to positive decimal
-                    row['amount'] = Decimal(row['amount'])
-            except DecimalException as e:
-                log(f"WARNING: Error parsing amount: {e}\n{tab()}Row[{row_number}]: {row}")
-                continue
+                    Unique_ID.add(row['transaction_id'])
+                transactions.append(row)
 
-            # Convert ID to Integer
-            try: 
-                row['transaction_id'] = int(row['transaction_id'])
-            except ValueError as e:
-                log(f"WARNING: Error parsing ID: {e}\n{tab()}Row[{row_number}]: {row}")
-                continue
-            # check id is sequential 
-            if row['transaction_id'] <= id_number:
-                log(f"WARNING: ID is not sequential: {row['transaction_id']}\n{tab()}Row[{row_number}]: {row}")
-                continue
-            else :
-                id_number = row['transaction_id']
-            # Check for duplicate ID
-            if row['transaction_id'] in Unique_ID:
-                log(f"WARNING: Duplicate ID found: {row['transaction_id']}\n{tab()}Row[{row_number}]: {row}")
-                continue
-            else:
-                Unique_ID.add(row['transaction_id'])
-            transactions.append(row)
-
-        # lines.append the first 5 rows    
-        if True:
-            print("INFO:")
-            print(f"{tab()}Number of transactions: {len(transactions)}")
-
-            print(f"{tab()}First 5 transactions:")
-            for i in range(5):
-                print(tab(2), transactions[i])
+            success = f"INFO: Successfully read {len(transactions)} transactions from {file_name}."
+            spinner.succeed(success)  
+            log(success, False)  
 
 
-except FileNotFoundError:
-    print("The file 'financial_transactions.csv' was not found.")
-    sys.exit(1)
+    except FileNotFoundError:
+        fail = f"ERROR: The file {file_name} was not found."
+        spinner.fail(fail)
+        log(fail, False)
+        sys.exit(1)
 
-except ValueError as e:
-    print(f"Value error: {e}")
-    sys.exit(1)
+    except ValueError as e:
+        fail = f"ERROR: Value error: {e}"
+        spinner.fail(fail)
+        log(fail, False)
+        sys.exit(1)
 
-except Exception as e:
-    print(f"An error occurred: {e}")
-    sys.exit(1)
+    except Exception as e:
+        fail = f"ERROR: {e}"
+        spinner.fail(fail)
+        log(fail, False)
+        sys.exit(1)
+
+    finally:
+        spinner.stop()
 
 
 
 # ## View Transactions
 
-# In[252]:
+# In[ ]:
 
 
 import textwrap
@@ -206,17 +231,9 @@ def print_transaction_footer():
     print_transaction_row(footer, fill='-', separator='-^-')
 
 
-if __name__ == "__main__":
-    # Example usage
-    print()
-    view_transaction_table(transactions)
-    # Add more functionality as needed
-    # e.g., filter by transaction_id, date, amount, type
-
-
 # # CLI Input Validation
 
-# In[253]:
+# In[ ]:
 
 
 ## input_int
@@ -284,7 +301,7 @@ def input_default(prompt, default=None):
 # # Transaction Validation
 # 
 
-# In[254]:
+# In[ ]:
 
 
 def validate_transaction_id(transaction_id):
@@ -323,7 +340,7 @@ def validate_type_amount(transaction):
 
 # ## Add Transaction CLI
 
-# In[255]:
+# In[ ]:
 
 
 def create_transaction(id, date, customer_id, amount, type, description):
@@ -372,7 +389,7 @@ def add_transaction_cli():
 
 # ## View Menu
 
-# In[256]:
+# In[ ]:
 
 
 def cli_view_menu():
@@ -387,7 +404,7 @@ def cli_view_menu():
 
 # ## Update Delete
 
-# In[257]:
+# In[ ]:
 
 
 def cli_update_delete_menu():
@@ -476,7 +493,7 @@ def cli_update_delete_menu():
 
 # ## Analyze Transactions
 
-# In[258]:
+# In[ ]:
 
 
 """
@@ -549,7 +566,7 @@ def financial_summary(subset_of_transactions = None, title="Financial Summary"):
 # In[ ]:
 
 
-def analyze_transactions():
+def analyze_transactions(file_name='analysis.txt', mode='w'):
     global transactions
     lines = []
 
@@ -567,7 +584,12 @@ def analyze_transactions():
     # get a unique set of customer IDs
     customer_ids = set(t['customer_id'] for t in transactions)
 
+
+
     # for each customer, calculate the total debits 
+    spinner = Halo('Analyzing Customers')
+    spinner.start()
+
     highest_debit_customer = { 'customer_id': None, 'debits': Decimal(0) }
     for customer_id in customer_ids:
         selected = [t for t in transactions if t['customer_id'] == customer_id and t['type'].lower() == 'debit']
@@ -578,6 +600,8 @@ def analyze_transactions():
                 'customer_id': customer_id,
                 'debits': total_debits
             }
+    spinner.succeed("Analysis Complete")
+    print()
 
     subset = [t for t in transactions if t['customer_id'] == highest_debit_customer['customer_id']]
     print(f"INFO: Customer with Highest Debits, ID: {highest_debit_customer}")
@@ -588,18 +612,95 @@ def analyze_transactions():
 
     # write lines to analysis.txt
     try:
-        with open('analysis.txt', 'w') as f:
+        with open(file_name, mode) as f:
             for line in lines:
                 if isinstance(line, list):
                     f.write("\n".join(line) + "\n")
                 else:
                     f.write(line + "\n")
     except Exception as e:
-        log(f"ERROR: Error writing to analysis.txt: {e}")
+        log(f"ERROR: Error writing to {file_name}: {e}")
         sys.exit(1)
 
 
     return lines
+
+
+# ## Save Transactions
+
+# In[ ]:
+
+
+def save_transactions(file_name='financial_transactions.csv'):
+    """
+    Save transactions to financial_transactions.csv.
+    """
+    spinner = Halo(f'Saving transactions to {file_name}')   
+    spinner.start()
+
+    import os
+    import shutil
+    # Backup existing file if it exists
+    try:
+        if file_name and os.path.exists(file_name) and os.path.isfile(file_name):
+            base_name = os.path.basename(file_name)
+            backup_file = os.path.splitext(base_name)[0]
+            backup_file = f"{backup_file}.bak"
+            shutil.copyfile(file_name, backup_file)
+            log(f"\nINFO: Backup of {file_name} created as {backup_file}")
+    except Exception as e:
+        message = f"\n{e}\n\tFailed to create backup for {file_name}"
+        log_warn(message, 'Spinner')
+
+    try:
+        ## fieldnames are not optional, and lets HOPE the keys are in the correct order ... 
+        with open(file_name, 'w', newline='') as file:
+            fieldnames = transactions[0].keys() if transactions else []
+            writer = csv.DictWriter(file, fieldnames=fieldnames)
+            writer.writeheader()
+            for transaction in transactions:
+                # Convert date back to string for CSV
+                transaction['date'] = transaction['date'].strftime('%Y-%m-%d') if isinstance(transaction['date'], datetime) else transaction['date']
+                writer.writerow(transaction)
+    except Exception as e:
+        message = f"ERROR: {e}\n\tFailed to save transactions to {file_name}"
+        spinner.fail(message)
+        log(message, False)
+        sys.exit(1)
+
+    spinner.succeed(f"Transactions saved to {file_name}")
+    return (file_name, len(transactions))
+
+
+# ## Save Report
+
+# In[ ]:
+
+
+def save_report(file_path="report.txt"):
+
+    # parse the file name to remove .txt if it exists
+    if file_path.endswith('.txt'):
+        file_name = file_path[:-4]
+    else:
+        raise ValueError("File name must end with .txt")
+        sys.exit(1)
+    timestamp = datetime.now().strftime("%Y%m%d")
+    file_name = f"{file_name}_{timestamp}.txt"
+
+    try: 
+        with open(file_name, 'w') as f:
+            f.write(f"Financial Transactions Report\n")
+            f.write(f"Generated on: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
+            f.write(f"Total Transactions: {len(transactions)}\n")
+            f.write(f"Total Warnings: {number_of_warnings}\n\n\n")
+    except Exception as e:
+        log(f"ERROR: {e}\n\tFailed to save report to {file_path}")
+        sys.exit(1)
+
+    timestamp = datetime.now().strftime("%Y%m%d")
+    analyze_transactions(file_name, 'a')
+
 
 
 # ## CLI Setup
@@ -620,11 +721,13 @@ def exit_cli():
  # Create a dictionary of Actions and Functions
 actions = {
     'ADd':      add_transaction_cli,
-    'Analyze':  analyze_transactions, # Placeholder for analyze function
+    'Analyze':  analyze_transactions, 
     'Cls':      lambda: os.system('cls'), # clear the screen
     'EDit':     cli_update_delete_menu, 
+    'Read':     read_transactions,
+    'Report':   save_report,
+    'SAve':     save_transactions, 
     'vieW':     cli_view_menu, ## lambda: cli_view_menu(),
-    'SAve':     'save_transactions',
     }
 
 # sort the actions alaphabetically lowercase
@@ -635,26 +738,31 @@ actions['eXit'] = exit_cli
 
 
 
-# ## CLI Loop
+# ## Main / CLI Loop
 # 
 
 # In[ ]:
 
 
-print()
-while CLI_EXIT == False:
-    # Ask user for input
-    print()
-    print("-= Hornet Financial Calculator (Alpha) =-")
-    action = input_option(f"Action: ",list(actions.keys()))
+def main():
+    read_transactions()  # Read transactions from CSV file
 
-    if action in actions:
-        # if the action is a function, call it
-        if callable(actions[action]):
-            actions[action]()
+    while CLI_EXIT == False:
+        # Ask user for input
+        print()
+        print("-= Hornet Financial Calculator (Alpha) =-")
+        action = input_option(f"Action: ",list(actions.keys()))
+
+        if action in actions:
+            # if the action is a function, call it
+            if callable(actions[action]):
+                actions[action]()
+            else:
+                print(f"Action '{action}' is not callable or has not been implemented.")
         else:
-            print(f"Action '{action}' is not callable or has not been implemented.")
-    else:
-        print(f"Invalid action: {action}")
-        continue    
+            print(f"Invalid action: {action}")
+            continue    
+
+if __name__ == "__main__":
+    main()
 

@@ -172,4 +172,10 @@ cython_debug/
 
 # PyPI configuration file
 .pypirc
+
+# Project Files to Ignore
 log.txt
+report*.txt
+*.bak
+analysis.txt
+report.txt
